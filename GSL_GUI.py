@@ -1,26 +1,163 @@
 #! /usr/bin/env python3
+from __future__ import print_function
 
 from tkinter import *
 import requests
 import csv
 import io
+
+
+import httplib2
 import os
 
+from apiclient import discovery
+from oauth2client import client
+from oauth2client import tools
+from oauth2client.file import Storage
+
+import datetime
+import re
+
+try:
+    import argparse
+    flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
+except ImportError:
+    flags = None
 
 def resource_path(relative_path):
+     '''set path for pyinstaller'''
      if hasattr(sys, '_MEIPASS'):
          return os.path.join(sys._MEIPASS, relative_path)
      return os.path.join(os.path.abspath("."), relative_path)
 
+SCOPES = 'https://www.googleapis.com/auth/spreadsheets'
+CLIENT_SECRET_FILE = 'client_secret.json'
+APPLICATION_NAME = 'GUI-for-EC'
+
+class SpreadsheetHandler():
+
+    def __init__(self):
+        self.service = self.login()
+        #test
+        #self.spreadsheetId = '1-lMc3ecLBmf8oJLWZipxapC_F1upByCd9UaA8YepZtc'
+        self.spreadsheetId = '1zeuYtXUNRVeY-CUW9jUi7s_nF5VaQ9DoIvOgFzXnsuQ'
+        #self.spreadsheetName = "test"
+        self.spreadsheetName = "GS-Liste"
 
 
-class Window(Frame):
+
+    def get_credentials(self):
+        """Gets valid user credentials from storage.
+
+        If nothing has been stored, or if the stored credentials are invalid,
+        the OAuth2 flow is completed to obtain the new credentials.
+
+        Returns:
+            Credentials, the obtained credential.
+        """
+        home_dir = os.path.expanduser('~')
+        credential_dir = os.path.join(home_dir, '.credentials')
+        if not os.path.exists(credential_dir):
+            os.makedirs(credential_dir)
+        credential_path = os.path.join(credential_dir,
+                                       'sheets.googleapis.com-python-quickstart.json')
+
+        store = Storage(credential_path)
+        credentials = store.get()
+        if not credentials or credentials.invalid:
+            flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
+            flow.user_agent = APPLICATION_NAME
+            if flags:
+                credentials = tools.run_flow(flow, store, flags)
+            else: # Needed only for compatibility with Python 2.6
+                credentials = tools.run(flow, store)
+            print('Storing credentials to ' + credential_path)
+        return credentials
+
+    def login(self):
+        credentials = self.get_credentials()
+        http = credentials.authorize(httplib2.Http())
+        discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
+                    'version=v4')
+        service = discovery.build('sheets', 'v4', http=http,
+                              discoveryServiceUrl=discoveryUrl)
+        return service
+
+    def load_data(self):
+
+        rangeName = self.spreadsheetName+'!A1:K175'
+        result = self.service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheetId, range=rangeName).execute()
+        values = result.get('values', [])
+
+        rownum = 0
+        header = 4
+        labels = ["row"]
+        raw = {}
+        data = []
+
+        for row in values:
+            if rownum == header:
+                for col in row:
+                    raw[col] = ''
+                    labels.append(col)
+
+            elif rownum > header:
+                i = 0
+                for col in row:
+                    raw[labels[i+1]] = col
+                    raw["row"] = rownum + 1
+                    i = i +1
+                temp = raw.copy()
+                if temp["x0"] != "":
+                    data.append(temp)
+
+            rownum = rownum + 1
+
+        labeled = {}
+        for GS in data:
+            labeled[GS["ID"]] = GS
+
+        self.data = labeled
+        return labeled
+
+    def write(self, row, col, val, vio="RAW"):
+        '''writes into single cell'''
+
+        ColumnLetters = {
+            "ID":"A",
+            "x0":"B",
+            "x1":"C",
+            "y0":"D",
+            "y1":"E",
+            "Besitzer":"F",
+            "Offlinezeit":"H",
+            "Verkaufsschild":"I",
+            "Preis":"K"
+        }
+
+        range = self.spreadsheetName + "!" + ColumnLetters[col] + row + ":" + ColumnLetters[col] + row
+        value_input_option = vio
+
+        values = [
+            [
+                val
+            ]
+        ]
+        body = {
+          'values': values
+        }
+        result = self.service.spreadsheets().values().update(
+            spreadsheetId=self.spreadsheetId, range=range,
+            valueInputOption=value_input_option, body=body).execute()
+
+class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.1.21"
+        self.version = "v.2.1"
         self.master = master
-        self.master.title("GSL GUI "+"\t"+ self.version)
+        self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
         self.widgets = {}
         self.tooltip = -1
@@ -38,12 +175,23 @@ class Window(Frame):
     def create_menu(self, master):
 
         menubar = Menu(master)
+
         helpmenu = Menu(menubar, tearoff=0)
         helpmenu.add_command(label="Help", command=self.help)
         helpmenu.add_command(label="Check for updates...", command=self.upd)
         helpmenu.add_command(label="About...", command=self.about)
         menubar.add_cascade(label="Hilfe", menu=helpmenu)
+
+        editmenu = Menu(menubar, tearoff=0)
+        editmenu.add_command(label="Edit Drive", command=self.open_edit)
+        editmenu.add_command(label="something...", command=self.upd)
+        menubar.add_cascade(label="Bearbeiten", menu=editmenu)
+
+
+
         return menubar
+
+
 
     def mock_data(self):
 
@@ -99,7 +247,6 @@ class Window(Frame):
                     raw[cols[i]] = col
                     i = i +1
                 temp = raw.copy()
-                #print(temp)
                 if temp["x0"] != "":
                     data.append(temp)
             else:
@@ -147,7 +294,7 @@ class Window(Frame):
                 self.tooltip.geometry(geom)
                 label.pack(fill=BOTH)
 
-    def draw_rect(self, master, id, singleSearch=False, multiSearch=False, showAll=False, demolish=False):
+    def draw_rect(self, master, id, singleSearch=False, multiSearch=False, showAll=False, demolish=False, oust=False):
 
         if singleSearch:
             master.create_rectangle(self.data[id]["x0"], self.data[id]["y0"], self.data[id]["x1"], self.data[id]["y1"], fill="orange", tags=id)
@@ -158,6 +305,8 @@ class Window(Frame):
             else:
                 master.create_rectangle(self.data[id]["x0"], self.data[id]["y0"], self.data[id]["x1"], self.data[id]["y1"], fill="green", tags=id)
         elif demolish:
+            master.create_rectangle(self.data[id]["x0"], self.data[id]["y0"], self.data[id]["x1"], self.data[id]["y1"], fill="red", tags=id)
+        elif oust:
             master.create_rectangle(self.data[id]["x0"], self.data[id]["y0"], self.data[id]["x1"], self.data[id]["y1"], fill="red", tags=id)
         else:
             master.create_rectangle(self.data[id]["x0"], self.data[id]["y0"], self.data[id]["x1"], self.data[id]["y1"], tags=id, fill="white", stipple="gray12")
@@ -213,7 +362,9 @@ class Window(Frame):
         self.var_abriss = BooleanVar()
         self.check_abriss = Checkbutton(frame, text="zum Abriss", variable=self.var_abriss, onvalue=True)
         self.check_abriss.grid(row=2, column=4, padx=5, sticky=W)
-
+        self.var_oust = BooleanVar()
+        self.check_oust = Checkbutton(frame, text="zur Enteignung", variable=self.var_oust, onvalue=True)
+        self.check_oust.grid(row=3, column=4, padx=5, sticky=W)
 
         #column 5
         self.entry_max = Entry(frame, width=10)
@@ -318,6 +469,18 @@ class Window(Frame):
                 if self.data[gs]["Offlinezeit"].lower() == "x":
                     self.draw_rect(self.canv, gs, False, False, False, True)
 
+        if self.var_oust.get():
+            sellable = []
+            ownedByCity = []
+            self.canv.destroy()
+            self.canvas = self.create_canvas(self.master)
+            self.canvas.pack()
+            for gs in self.data.keys():
+                if self.data[gs]["Besitzer"] != "Q + S":
+                    dif = datetime.date.today() - datetime.datetime.strptime(self.data[gs]["Offlinezeit"], "%d.%m.%Y").date()
+                    if dif.days >= 30:
+                        self.draw_rect(self.canv, gs, False, False, False, False, True)
+
         #draw
         for gs in sellable:
             self.draw_rect(self.canv, gs, False, True)
@@ -361,8 +524,181 @@ class Window(Frame):
         label = Label(root, text="Computer says no")
         label.pack()
 
-root = Tk()
-app = Window(root)
-root.mainloop()
+    def open_edit(self):
+        root = Tk()
+        ManagerWindow(root)
 
-k=input("Press enter to exit ")
+class ManagerWindow(Frame):
+
+    def __init__(self, master=None):
+        Frame.__init__(self,master)
+        self.master = master
+        self.access = False
+        self.master.title("Bearbeiten")
+        self.handler = SpreadsheetHandler()
+        self.data = self.handler.load_data()
+        interface = self.create_interface(master)
+        self.input_option = "RAW"
+
+
+    def create_interface(self, master):
+
+        #frame = Frame(master, bd=1, pady=5, padx=2,  relief=RIDGE)
+
+        OPTIONS = [
+            "GS-ID",
+            "Datum",
+            "Besitzer",
+            "Preis",
+            "Verkaufsschild"
+        ]
+
+        #column 1
+        Label(master, text="GS-ID").grid(row=0, column=0, padx=5, sticky=SW)
+        self.entry_ID = Entry(master)
+        self.entry_ID.grid(row=1, column=0)
+        self.button_show = Button(master, text="Details", width=15, command=self.show_details)
+        self.button_show.grid(row=3, column=0)
+
+        Label(master, text="Besitzer:").grid(row=4, column=0, padx=5, sticky=SW)
+        Label(master, text="Datum:").grid(row=5, column=0, padx=5, sticky=SW)
+        Label(master, text="Preis:").grid(row=6, column=0, padx=5, sticky=SW)
+        Label(master, text="Verkaufsschild:").grid(row=7, column=0, padx=5, sticky=SW)
+
+        #column 2
+        Label(master, text="Feld").grid(row=0, column=1, padx=5, sticky=SW)
+        self.var_options = StringVar(master)
+        self.var_options.set(OPTIONS[2])
+        self.option = OptionMenu(master, self.var_options, *OPTIONS)
+        self.option.grid(column=1, row=1)
+        self.button_undo = Button(master, text="rueckgaengig", width=15)
+        self.button_undo.grid(row=3, column=1)
+
+
+        self.l1 = Label(master, text="")
+        self.l1.grid(row=4, column=1, padx=5, sticky=SW)
+
+        self.l2 = Label(master, text="")
+        self.l2.grid(row=5, column=1, padx=5, sticky=SW)
+        self.l3 = Label(master, text="")
+        self.l3.grid(row=6, column=1, padx=5, sticky=SW)
+        self.l4 = Label(master, text="")
+        self.l4.grid(row=7, column=1, padx=5, sticky=SW)
+
+        #column3
+        Label(master, text="Neuer Wert").grid(row=0, column=2, padx=5, sticky=SW)
+        self.entry_new = Entry(master)
+        self.entry_new.grid(column=2, row=1)
+
+        self.button_apply = Button(master, text="anwenden", width=15)
+        self.button_apply.grid(row=3, column=2)
+
+        #functionality
+        self.entry_ID.insert(10, "s037-")
+        self.button_apply.bind('<ButtonPress-1>', self.apply)
+        self.button_undo.bind('<ButtonPress-1>', self.undo)
+        #self.button_show.bind('<ButtonPress-1>', self.show_details)
+
+        #return frame
+
+    def show_details(self):
+        self.ID = self.entry_ID.get()
+        if self.ID in self.data.keys():
+            owner = self.data[self.ID]["Besitzer"]
+            off = self.data[self.ID]["Offlinezeit"]
+            prize = self.data[self.ID]["Preis"]
+            sellable = self.data[self.ID]["Verkaufsschild"]
+
+            self.l1.configure(text=owner)
+            self.l2.configure(text=off)
+            self.l3.configure(text=prize)
+            self.l4.configure(text=sellable)
+
+        else:
+            None
+
+    def undo(self, event):
+        self.handler.write(str(self.row), self.field, self.backup[self.field])
+        self.data[self.ID][self.field] = self.backup[self.field]
+        self.show_details()
+
+    def apply(self, event):
+
+        mapping={
+            "Datum":"Offlinezeit",
+            "GS-ID":"ID",
+            "Besitzer":"Besitzer",
+            "Preis":"Preis",
+            "Verkaufsschild":"Verkaufsschild"
+        }
+
+        self.ID = self.entry_ID.get()
+        self.val = self.entry_new.get()
+        self.field = mapping[self.var_options.get()]
+
+        if self.field == "ID":
+            if not self.access:
+                win = Tk()
+                win.title("Passwort eingeben:")
+                pw_win = Frame(win, width=200, height=10)
+
+                def _check_pw(event):
+                    entry = self.entry_pw.get()
+                    pw = "_ysbiuQ"
+                    if pw == entry:
+                        self.access = True
+                        print("Access granted.")
+                    else:
+                        self.access = False
+                        print("Entered wrong password...")
+
+                    win.destroy()
+
+
+                self.entry_pw = Entry(win)
+                self.entry_pw.pack(fill=BOTH)
+                self.entry_pw.bind('<Return>', _check_pw)
+
+                if not self.access:
+                    return
+
+        elif self.field == "Offlinezeit":
+
+            if 'd' in self.val:
+                def _comp_days():
+                    days = re.findall(r'\dd', self.val)
+                    weeks = re.findall(r"\dw", self.val)
+                    days = int(days[0][0])
+                    if weeks:
+                        weeks = int(weeks[0][0])
+                    else:
+                        weeks = 0
+                    dif = days + (weeks*7)
+                    return dif
+
+                today = datetime.date.today()
+                newData = today - datetime.timedelta(days=_comp_days())
+                self.val = '=TO_DATE(DATEVALUE("'+str(newData)+'"))'
+                self.input_option = "USER_ENTERED"
+        else:
+            self.input_option = "RAW"
+
+
+        if self.ID in self.data.keys():
+            self.row = self.data[self.ID]["row"]
+            self._make_backup()
+            self.handler.write(str(self.row), self.field, self.val, self.input_option)
+            self.data[self.ID][self.field] = self.val
+            self.show_details()
+        else:
+            None
+
+    def _make_backup(self):
+            temp = self.data[self.ID]
+            self.backup = temp.copy()
+
+
+
+root = Tk()
+app = MainWindow(root)
+root.mainloop()
