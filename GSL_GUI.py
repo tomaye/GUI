@@ -31,7 +31,7 @@ def resource_path(relative_path):
      return os.path.join(os.path.abspath("."), relative_path)
 
 SCOPES = 'https://www.googleapis.com/auth/spreadsheets'
-CLIENT_SECRET_FILE = 'client_secret.json'
+CLIENT_SECRET_FILE = resource_path('client_secret.json')
 APPLICATION_NAME = 'GUI-for-EC'
 
 class SpreadsheetHandler():
@@ -155,7 +155,7 @@ class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.2.1"
+        self.version = "v.2.3"
         self.master = master
         self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
@@ -294,6 +294,16 @@ class MainWindow(Frame):
                 self.tooltip.geometry(geom)
                 label.pack(fill=BOTH)
 
+    def open_Dialog(self, id):
+        root = Tk()
+        mw = ManagerWindow(root, id)
+        mw.show_details()
+        r = Tk()
+        r.withdraw()
+        r.clipboard_clear()
+        r.clipboard_append(r'/rg i '+id)
+        r.destroy()
+
     def draw_rect(self, master, id, singleSearch=False, multiSearch=False, showAll=False, demolish=False, oust=False):
 
         if singleSearch:
@@ -319,11 +329,17 @@ class MainWindow(Frame):
             self.canv.create_image(304, 295, image=self.map)
             for id in self.data.keys():
 
-                def make_lambda(x, hide):
+                def tooltip(x, hide):
                     return lambda ev: self.display_info(x, hide)
+
+                def onClick(id):
+                    return lambda ev: self.open_Dialog(id)
+
                 self.widgets[id] = self.draw_rect(self.canv, id)
-                self.canv.tag_bind(id, '<Enter>', make_lambda(id, False))
-                self.canv.tag_bind(id, '<Leave>', make_lambda(id, True))
+                self.canv.tag_bind(id, '<Enter>', tooltip(id, False))
+                self.canv.tag_bind(id, '<Leave>', tooltip(id, True))
+
+                self.canv.tag_bind(id, '<ButtonPress-1>', onClick(id))
 
             return self.canv
 
@@ -500,6 +516,7 @@ class MainWindow(Frame):
     def help(self):
         root = Toplevel()
         text = "Read the fucking manual!" +"\n"+ "\n"+ \
+            "Der Spawn ist der Platz ohne GS Markierungen links unter dem Mittelpunkt der Karte!" + "\n" \
             "Die GS-Einzelsuche wird durch enter aktiviert und hat nichts mit dem suchen-Button (rechte Seite) zu tun." + "\n" \
             "Einzelsuchergebnisse ueberschreiben vorher markierte Felder, sodass es danach zu Farbverlusten von Felder kommen kann." + "\n" \
             "Bei einer Suche nach zum Abriss stehenden GS werden alle anderen Auswahlparameter (Preisspanne, etc.) ignoriert." + "\n" \
@@ -530,15 +547,17 @@ class MainWindow(Frame):
 
 class ManagerWindow(Frame):
 
-    def __init__(self, master=None):
-        Frame.__init__(self,master)
+    def __init__(self, master=None, default_id="s037-"):
+        Frame.__init__(self, master)
         self.master = master
         self.access = False
         self.master.title("Bearbeiten")
+        self.entryID_default = default_id
         self.handler = SpreadsheetHandler()
         self.data = self.handler.load_data()
         interface = self.create_interface(master)
         self.input_option = "RAW"
+
 
 
     def create_interface(self, master):
@@ -568,7 +587,7 @@ class ManagerWindow(Frame):
         #column 2
         Label(master, text="Feld").grid(row=0, column=1, padx=5, sticky=SW)
         self.var_options = StringVar(master)
-        self.var_options.set(OPTIONS[2])
+        self.var_options.set(OPTIONS[1])
         self.option = OptionMenu(master, self.var_options, *OPTIONS)
         self.option.grid(column=1, row=1)
         self.button_undo = Button(master, text="rueckgaengig", width=15)
@@ -594,7 +613,7 @@ class ManagerWindow(Frame):
         self.button_apply.grid(row=3, column=2)
 
         #functionality
-        self.entry_ID.insert(10, "s037-")
+        self.entry_ID.insert(10, self.entryID_default)
         self.button_apply.bind('<ButtonPress-1>', self.apply)
         self.button_undo.bind('<ButtonPress-1>', self.undo)
         #self.button_show.bind('<ButtonPress-1>', self.show_details)
@@ -668,7 +687,10 @@ class ManagerWindow(Frame):
                 def _comp_days():
                     days = re.findall(r'\dd', self.val)
                     weeks = re.findall(r"\dw", self.val)
-                    days = int(days[0][0])
+                    if days:
+                        days = int(days[0][0])
+                    else:
+                        days = 0
                     if weeks:
                         weeks = int(weeks[0][0])
                     else:
@@ -698,6 +720,11 @@ class ManagerWindow(Frame):
             self.backup = temp.copy()
 
 
+#r = Tk()
+#r.withdraw()
+#r.clipboard_clear()
+#r.clipboard_append('i can has clipboardz?')
+#r.destroy()
 
 root = Tk()
 app = MainWindow(root)
