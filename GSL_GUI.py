@@ -694,14 +694,18 @@ class MainWindow(Frame):
 
     def read_from_log(self):
 
+        print("Scanning log...")
         lr = LogHandler()
         updatedGS = lr.read_log()
         #print(updatedGS)
         #print(type(updatedGS))
+
+        print("Updating drive...")
+
         for region in updatedGS.keys():
             #print("MAINFRAME")
             lr.update_from_log(updatedGS[region], region)
-        print("Updating complete!")
+        print("Update complete!")
 
         root = Toplevel()
         root.title("Owner Changes")
@@ -709,7 +713,7 @@ class MainWindow(Frame):
         text = ""
         for change in lr.changes:
             ID, old, new = change
-            text += ID + " "+ " || " +old + " -> " + " || " +new + "\n"
+            text += ID + " "+ " || " +old + " -> "  +new + " || "+"\n"
         if lr.changes == []:
             text = "Keine Aenderungen"
         label = Label(root, text=text)
