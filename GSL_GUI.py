@@ -85,7 +85,7 @@ class SpreadsheetHandler():
 
     def load_data(self):
 
-        rangeName = self.spreadsheetName+'!A1:K175'
+        rangeName = self.spreadsheetName+'!A1:S175'
         result = self.service.spreadsheets().values().get(
             spreadsheetId=self.spreadsheetId, range=rangeName).execute()
         values = result.get('values', [])
@@ -131,9 +131,11 @@ class SpreadsheetHandler():
             "y0":"D",
             "y1":"E",
             "Besitzer":"F",
+            "Mitbewohner":"G",
             "Offlinezeit":"H",
             "Verkaufsschild":"I",
-            "Preis":"K"
+            "Preis":"K",
+            "Status":"R"
         }
 
         range = self.spreadsheetName + "!" + ColumnLetters[col] + row + ":" + ColumnLetters[col] + row
@@ -151,11 +153,144 @@ class SpreadsheetHandler():
             spreadsheetId=self.spreadsheetId, range=range,
             valueInputOption=value_input_option, body=body).execute()
 
+class LogHandler():
+
+    def __init__(self, master=None, default_id="s037-"):
+        self.master = master
+        self.entryID_default = default_id
+        self.handler = SpreadsheetHandler()
+        self.data = self.handler.load_data()
+        self.input_option = "RAW"
+        self.changes = []
+
+    def scan_for_info(self,lines, index):
+
+        if "You're" in lines[index-1]:
+            return None
+
+        owner = lines[index][1]
+
+        for i in range(0, 10):
+            line = lines[index+i]
+
+            if len(line) < 2:
+                continue
+
+            #region id
+            elif line[0] == "Region:":
+                id = line[1]
+
+            #members
+            elif line[0] == "Members:":
+                members = str([name.replace("*","").replace(",","") for name in line[1:]])[1:-1]
+
+            #offline duration
+            elif line[1] == "ist":
+
+                weeks = 0
+                days = 0
+                for j in range(0,len(line)):
+                    if "Woche" in line[j]:
+                        weeks = line[j-1]
+                    if "Tag" in line[j]:
+                        days = line[j-1]
+                date = str(weeks)+"w"+str(days)+"d"
+
+
+        infos = {id: {"owner": owner,
+                        "members": members,
+                        "offline": date}}
+        return infos
+
+    def read_log(self):
+
+        path = os.getenv('APPDATA')+"\\.minecraft\\logs\\latest.log"
+        #path = os.getenv('APPDATA')+"\\.minecraft\\logs\\testlog.log"
+
+        f = open(path)
+
+        #GS-Liste
+        gs = {}
+
+        lines = [line.split()[4:] for line in f.readlines()]
+
+        for i in range(0, len(lines)):
+
+            line = lines[i]
+
+            try:
+
+                if line[0] == "Regionsbesitzer:":
+                    region = self.scan_for_info(lines, i)
+                    if region != None:
+                        gs.update(region)
+
+            except IndexError:
+                continue
+
+        return gs
+
+    def update_from_log(self, region, ID):
+
+        self.ID = ID
+        if ID not in self.data.keys():
+            return
+
+        for key in region.keys():
+
+            if key == "offline":
+                    self.field = "Offlinezeit"
+                    self.val = region[key]
+                    if 'd' in self.val:
+                        def _comp_days():
+                            days = re.findall(r'\dd', self.val)
+                            weeks = re.findall(r"\dw", self.val)
+                            if days:
+                                days = int(days[0][0])
+                            else:
+                                days = 0
+                            if weeks:
+                                weeks = int(weeks[0][0])
+                            else:
+                                weeks = 0
+                            dif = days + (weeks*7)
+                            return dif
+
+                        today = datetime.date.today()
+                        newData = today - datetime.timedelta(days=_comp_days())
+                        self.val = '=TO_DATE(DATEVALUE("'+str(newData)+'"))'
+                        self.input_option = "USER_ENTERED"
+
+            elif key == "owner":
+                self.field = "Besitzer"
+                self.val = region[key]
+                self.input_option = "RAW"
+
+                if self.data[ID]["Besitzer"] != self.val:
+                    self.changes.append([ID, self.data[ID]["Besitzer"], self.val])
+
+
+            elif key == "members":
+                self.field = "Mitbewohner"
+                self.val = region[key]
+                self.input_option = "RAW"
+
+            else:
+                continue
+                self.input_option = "RAW"
+
+            if self.ID in self.data.keys():
+                    self.row = self.data[self.ID]["row"]
+                    self.handler.write(str(self.row), self.field, self.val, self.input_option)
+                    self.data[self.ID][self.field] = self.val
+            else:
+                    None
+
 class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.2.3"
+        self.version = "v.3.0"
         self.master = master
         self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
@@ -184,8 +319,12 @@ class MainWindow(Frame):
 
         editmenu = Menu(menubar, tearoff=0)
         editmenu.add_command(label="Edit Drive", command=self.open_edit)
-        editmenu.add_command(label="something...", command=self.upd)
+        editmenu.add_command(label="Read from Log", command=self.read_from_log)
         menubar.add_cascade(label="Bearbeiten", menu=editmenu)
+
+        searchmenu = Menu(menubar, tearoff=0)
+        searchmenu.add_command(label="Spielersuche", command=self.player_search)
+        menubar.add_cascade(label="Suche", menu=searchmenu)
 
 
 
@@ -431,16 +570,14 @@ class MainWindow(Frame):
         def _has_building(ids, empty=False):
             build_up = []
             for id in ids:
-                building = self.data[id]["Offlinezeit"]
+                building = self.data[id]["Status"]
                 if building == "b" and not empty:
                     build_up.append(id)
                 elif building == "l" and empty:
                     build_up.append(id)
             return build_up
 
-
         sellable = []
-
         ownedByCity = []
 
         for gs in self.data.keys():
@@ -459,6 +596,7 @@ class MainWindow(Frame):
         else:
             self.maxPrize = int(self.maxPrize)
 
+        #filter for range
         sellable = _ids_in_range(sellable)
         ownedByCity = _ids_in_range(ownedByCity)
 
@@ -467,14 +605,22 @@ class MainWindow(Frame):
         if l and not b:
             unbebaut = _has_building(sellable, True)
             sellable = unbebaut
+            unbebaut = _has_building(ownedByCity, True)
+            ownedByCity = unbebaut
         elif b and not l:
             bebaut = _has_building(sellable)
             sellable = bebaut
+            bebaut = _has_building(ownedByCity)
+            ownedByCity = bebaut
         elif b and l:
             bebaut = _has_building(sellable)
             unbebaut = _has_building(sellable, True)
             sellable = unbebaut + bebaut
+            bebaut = _has_building(ownedByCity)
+            unbebaut = _has_building(ownedByCity, True)
+            ownedByCity = unbebaut + bebaut
 
+        #zum Abriss
         if self.var_abriss.get():
             sellable = []
             ownedByCity = []
@@ -482,9 +628,10 @@ class MainWindow(Frame):
             self.canvas = self.create_canvas(self.master)
             self.canvas.pack()
             for gs in self.data.keys():
-                if self.data[gs]["Offlinezeit"].lower() == "x":
+                if self.data[gs]["Status"].lower() == "x":
                     self.draw_rect(self.canv, gs, False, False, False, True)
 
+        #zur Enteignung
         if self.var_oust.get():
             sellable = []
             ownedByCity = []
@@ -545,6 +692,34 @@ class MainWindow(Frame):
         root = Tk()
         ManagerWindow(root)
 
+    def read_from_log(self):
+
+        lr = LogHandler()
+        updatedGS = lr.read_log()
+        #print(updatedGS)
+        #print(type(updatedGS))
+        for region in updatedGS.keys():
+            #print("MAINFRAME")
+            lr.update_from_log(updatedGS[region], region)
+        print("Updating complete!")
+
+        root = Toplevel()
+        root.title("Owner Changes")
+        root.minsize(width=500, height=200)
+        text = ""
+        for change in lr.changes:
+            ID, old, new = change
+            text += ID + " "+ " || " +old + " -> " + " || " +new + "\n"
+        if lr.changes == []:
+            text = "Keine Aenderungen"
+        label = Label(root, text=text)
+        label.pack()
+
+    def player_search(self):
+        root = Tk()
+        SearchWindow(root)
+
+
 class ManagerWindow(Frame):
 
     def __init__(self, master=None, default_id="s037-"):
@@ -569,7 +744,8 @@ class ManagerWindow(Frame):
             "Datum",
             "Besitzer",
             "Preis",
-            "Verkaufsschild"
+            "Verkaufsschild",
+            "Status"
         ]
 
         #column 1
@@ -583,6 +759,8 @@ class ManagerWindow(Frame):
         Label(master, text="Datum:").grid(row=5, column=0, padx=5, sticky=SW)
         Label(master, text="Preis:").grid(row=6, column=0, padx=5, sticky=SW)
         Label(master, text="Verkaufsschild:").grid(row=7, column=0, padx=5, sticky=SW)
+        Label(master, text="Status:").grid(row=8, column=0, padx=5, sticky=SW)
+        Label(master, text="Member:").grid(row=9, column=0, padx=5, sticky=SW)
 
         #column 2
         Label(master, text="Feld").grid(row=0, column=1, padx=5, sticky=SW)
@@ -603,6 +781,10 @@ class ManagerWindow(Frame):
         self.l3.grid(row=6, column=1, padx=5, sticky=SW)
         self.l4 = Label(master, text="")
         self.l4.grid(row=7, column=1, padx=5, sticky=SW)
+        self.l5 = Label(master, text="")
+        self.l5.grid(row=8, column=1, padx=5, sticky=SW)
+        self.l6 = Label(master, text="")
+        self.l6.grid(row=9, column=1, padx=5, sticky=SW)
 
         #column3
         Label(master, text="Neuer Wert").grid(row=0, column=2, padx=5, sticky=SW)
@@ -627,11 +809,25 @@ class ManagerWindow(Frame):
             off = self.data[self.ID]["Offlinezeit"]
             prize = self.data[self.ID]["Preis"]
             sellable = self.data[self.ID]["Verkaufsschild"]
+            members = self.data[self.ID]["Mitbewohner"]
+
+
+            if self.data[self.ID]["Status"] == "b":
+                status = "bebaut"
+            elif self.data[self.ID]["Status"] == "l":
+                status = "unbebaut"
+            elif self.data[self.ID]["Status"] == "x":
+                status = "zum Abriss"
+            else:
+                status = self.data[self.ID]["Status"]
+
 
             self.l1.configure(text=owner)
             self.l2.configure(text=off)
             self.l3.configure(text=prize)
             self.l4.configure(text=sellable)
+            self.l5.configure(text=status)
+            self.l6.configure(text=members)
 
         else:
             None
@@ -648,7 +844,8 @@ class ManagerWindow(Frame):
             "GS-ID":"ID",
             "Besitzer":"Besitzer",
             "Preis":"Preis",
-            "Verkaufsschild":"Verkaufsschild"
+            "Verkaufsschild":"Verkaufsschild",
+            "Status":"Status"
         }
 
         self.ID = self.entry_ID.get()
@@ -718,6 +915,80 @@ class ManagerWindow(Frame):
     def _make_backup(self):
             temp = self.data[self.ID]
             self.backup = temp.copy()
+
+class SearchWindow(Frame):
+
+    def __init__(self, master=None):
+        Frame.__init__(self, master)
+        self.master = master
+        self.master.title("Spielersuche")
+        self.handler = SpreadsheetHandler()
+        self.data = self.handler.load_data()
+        self.create_interface(master)
+        self.input_option = "RAW"
+        self.player = -1
+        self.foundAsOwner = []
+        self.foundAsMember = []
+
+
+
+    def create_interface(self, master):
+
+        #frame = Frame(master, bd=1, pady=5, padx=2,  relief=RIDGE)
+
+
+        #column 1
+        Label(master, text="Spielername:").grid(row=0, column=0, padx=5, sticky=SW)
+        self.entry_player = Entry(master)
+        self.entry_player.grid(row=1, column=0)
+
+
+        #column 2
+        self.button_search = Button(master, text="suchen", width=15)
+        self.button_search.grid(row=1, column=1)
+
+
+        self.l1 = Label(master, text="")
+        self.l1.grid(row=4, column=0, padx=5, sticky=SW)
+
+        self.l2 = Label(master, text="")
+        self.l2.grid(row=6, column=0, padx=5, sticky=SW)
+
+        self.button_search.bind('<ButtonPress-1>', self.show_details)
+
+
+    def show_details(self, event):
+
+        self.player = self.entry_player.get()
+
+
+
+        for region in self.data.keys():
+            if self.player.lower() == self.data[region]["Besitzer"].lower():
+                self.foundAsOwner.append(region)
+
+            if self.player.lower() in self.data[region]["Mitbewohner"].lower():
+                self.foundAsMember.append(region)
+
+        if self.foundAsOwner == []:
+            owner = "Kein Besitzer eines GS."
+        else:
+            owner = "Spieler besitzt folgende GS: " + str(self.foundAsOwner)[1:-1]
+
+        if self.foundAsMember == []:
+            member = "Ist nirgends als Member eingetragen."
+        else:
+            member = "Spieler ist auf folgende GS eingetragen: " + str(self.foundAsMember)[1:-1]
+
+        #self.create_interface(self.master)
+
+        self.l1.configure(text=owner)
+        self.l2.configure(text=member)
+
+        self.foundAsMember = []
+        self.foundAsOwner = []
+
+
 
 
 #r = Tk()
