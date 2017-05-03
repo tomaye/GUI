@@ -15,7 +15,7 @@ from oauth2client import client
 from oauth2client import tools
 from oauth2client.file import Storage
 
-import datetime
+import datetime, time
 import re
 
 try:
@@ -135,7 +135,7 @@ class SpreadsheetHandler():
             "Offlinezeit":"H",
             "Verkaufsschild":"I",
             "Preis":"K",
-            "Status":"R"
+            "Status":"S"
         }
 
         range = self.spreadsheetName + "!" + ColumnLetters[col] + row + ":" + ColumnLetters[col] + row
@@ -163,12 +163,18 @@ class LogHandler():
         self.input_option = "RAW"
         self.changes = []
 
-    def scan_for_info(self,lines, index):
+    def scan_for_info(self, lines, index):
 
         if "You're" in lines[index-1]:
             return None
 
         owner = lines[index][1]
+
+        if owner.lower() == "quibsy" or owner.lower() == "sceptoria":
+            owner = "Q + S"
+
+        members = "failed member scan"
+        id = "failed ID scan"
 
         for i in range(0, 10):
             line = lines[index+i]
@@ -236,6 +242,8 @@ class LogHandler():
         if ID not in self.data.keys():
             return
 
+        print("Processing "+ self.ID+"...")
+
         for key in region.keys():
 
             if key == "offline":
@@ -283,6 +291,8 @@ class LogHandler():
                     self.row = self.data[self.ID]["row"]
                     self.handler.write(str(self.row), self.field, self.val, self.input_option)
                     self.data[self.ID][self.field] = self.val
+                    #to prevent quota errors
+                    time.sleep(1)
             else:
                     None
 
@@ -290,7 +300,7 @@ class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.3.0"
+        self.version = "v.3.1"
         self.master = master
         self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
@@ -704,6 +714,8 @@ class MainWindow(Frame):
 
         for region in updatedGS.keys():
             #print("MAINFRAME")
+            if region not in self.data.keys():
+                continue
             lr.update_from_log(updatedGS[region], region)
         print("Update complete!")
 
@@ -749,7 +761,8 @@ class ManagerWindow(Frame):
             "Besitzer",
             "Preis",
             "Verkaufsschild",
-            "Status"
+            "Status",
+            "Member"
         ]
 
         #column 1
@@ -849,7 +862,8 @@ class ManagerWindow(Frame):
             "Besitzer":"Besitzer",
             "Preis":"Preis",
             "Verkaufsschild":"Verkaufsschild",
-            "Status":"Status"
+            "Status":"Status",
+            "Member":"Mitbewohner"
         }
 
         self.ID = self.entry_ID.get()
