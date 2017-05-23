@@ -16,7 +16,7 @@ from oauth2client import tools
 from oauth2client.file import Storage
 
 import datetime, time
-import re
+import re, random
 
 try:
     import argparse
@@ -38,11 +38,9 @@ class SpreadsheetHandler():
 
     def __init__(self):
         self.service = self.login()
-        #test
-        #self.spreadsheetId = '1-lMc3ecLBmf8oJLWZipxapC_F1upByCd9UaA8YepZtc'
         self.spreadsheetId = '1zeuYtXUNRVeY-CUW9jUi7s_nF5VaQ9DoIvOgFzXnsuQ'
-        #self.spreadsheetName = "test"
         self.spreadsheetName = "GS-Liste"
+        self.slogans = {"Stadt":[],"Gasthaus":[],"Markt":[]}
 
 
 
@@ -83,12 +81,51 @@ class SpreadsheetHandler():
                               discoveryServiceUrl=discoveryUrl)
         return service
 
-    def load_data(self):
 
-        rangeName = self.spreadsheetName+'!A1:S175'
+    def get_values(self):
+
+        if self.spreadsheetName == "GS-Liste":
+            range = '!A1:S175'
+        elif self.spreadsheetName == "Werbeslogans":
+            range = '!A2:C20'
+
+
+        rangeName = self.spreadsheetName+range
         result = self.service.spreadsheets().values().get(
             spreadsheetId=self.spreadsheetId, range=rangeName).execute()
         values = result.get('values', [])
+        return values
+
+
+
+    def load_data(self, slog):
+
+        #rangeName = self.spreadsheetName+'!A1:S175'
+        #result = self.service.spreadsheets().values().get(
+        #    spreadsheetId=self.spreadsheetId, range=rangeName).execute()
+        #values = result.get('values', [])
+
+        if slog:
+            self.spreadsheetName = "Werbeslogans"
+            slogans = self.get_values()
+
+            #loading slogan data
+            for row in slogans:
+                self.slogans["Gasthaus"].append(row[0])
+
+                if len(row) > 1:
+                    self.slogans["Stadt"].append(row[1])
+
+                if len(row) > 2:
+                    self.slogans["Markt"].append(row[2])
+
+            return None
+
+        self.spreadsheetName = "GS-Liste"
+        values = self.get_values()
+
+
+
 
         rownum = 0
         header = 4
@@ -96,6 +133,7 @@ class SpreadsheetHandler():
         raw = {}
         data = []
 
+        #loading GS data
         for row in values:
             if rownum == header:
                 for col in row:
@@ -300,7 +338,7 @@ class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.3.1"
+        self.version = "v.3.2"
         self.master = master
         self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
@@ -336,6 +374,12 @@ class MainWindow(Frame):
         searchmenu.add_command(label="Spielersuche", command=self.player_search)
         menubar.add_cascade(label="Suche", menu=searchmenu)
 
+        admenu = Menu(menubar, tearoff=0)
+        admenu.add_command(label="Stadt", command=self.slogan_stadt)
+        admenu.add_command(label="Gasthaus", command=self.slogan_gasthaus)
+        admenu.add_command(label="Markt", command=self.slogan_markt)
+        menubar.add_cascade(label="Werbegenerator", menu=admenu)
+
 
 
         return menubar
@@ -360,6 +404,11 @@ class MainWindow(Frame):
             return data
 
     def get_data_from_drive(self):
+
+        handler = SpreadsheetHandler()
+        handler.load_data(True)
+        self.handler = handler
+
         headers={}
         headers["User-Agent"]= "Mozilla/5.0 (Windows NT 6.2; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"
         headers["DNT"]= "1"
@@ -734,6 +783,35 @@ class MainWindow(Frame):
     def player_search(self):
         root = Tk()
         SearchWindow(root)
+
+    def slogan_gasthaus(self):
+        slogan = random.choice(self.handler.slogans["Gasthaus"])
+        r = Tk()
+        r.withdraw()
+        r.clipboard_clear()
+        r.clipboard_append(slogan)
+        r.destroy()
+        print("Copied: \n" + slogan)
+
+    def slogan_stadt(self):
+        slogan = random.choice(self.handler.slogans["Stadt"])
+        r = Tk()
+        r.withdraw()
+        r.clipboard_clear()
+        r.clipboard_append(slogan)
+        r.destroy()
+        print("Copied: \n" + slogan)
+
+    def slogan_markt(self):
+        slogan = random.choice(self.handler.slogans["Markt"])
+        r = Tk()
+        r.withdraw()
+        r.clipboard_clear()
+        r.clipboard_append(slogan)
+        r.destroy()
+        print("Copied: \n" + slogan)
+
+
 
 
 class ManagerWindow(Frame):
