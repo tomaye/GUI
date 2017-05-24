@@ -98,7 +98,7 @@ class SpreadsheetHandler():
 
 
 
-    def load_data(self, slog):
+    def load_data(self, slog=False):
 
         #rangeName = self.spreadsheetName+'!A1:S175'
         #result = self.service.spreadsheets().values().get(
@@ -338,7 +338,7 @@ class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.3.2"
+        self.version = "v.3.2.1"
         self.master = master
         self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
