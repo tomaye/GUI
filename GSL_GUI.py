@@ -256,7 +256,7 @@ class LogHandler():
         #GS-Liste
         gs = {}
 
-        lines = [line.split()[4:] for line in f.readlines()]
+        lines = [line.split()[3:] for line in f.readlines()]
 
         for i in range(0, len(lines)):
 

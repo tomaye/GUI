@@ -2,12 +2,13 @@ import os
 
 class Logreader():
 
-    def scan_for_info(self,lines, index):
+    def scan_for_info(self, lines, index):
 
         if "You're" in lines[index-1]:
             return None
 
         owner = lines[index][1]
+        members = ""
 
         for i in range(0, 10):
             line = lines[index+i]
@@ -18,6 +19,8 @@ class Logreader():
             #region id
             elif line[0] == "Region:":
                 id = line[1]
+                #print(line)
+                #print(id)
 
             #members
             elif line[0] == "Members:":
@@ -44,6 +47,7 @@ class Logreader():
 
     def read_log(self):
 
+        print("READING LOG")
         path = os.getenv('APPDATA')+"\\.minecraft\\logs\\latest.log"
 
         f = open(path)
@@ -51,11 +55,12 @@ class Logreader():
         #GS-Liste
         gs = {}
 
-        lines = [line.split()[4:] for line in f.readlines()]
+        lines = [line.split()[3:] for line in f.readlines()]
 
         for i in range(0, len(lines)):
 
             line = lines[i]
+            #print(line)
 
             try:
 
@@ -67,6 +72,10 @@ class Logreader():
             except IndexError:
                 continue
 
+
         print(gs)
         print("TEST")
+        #return gs
 
+#reader = Logreader()
+#reader.read_log()
