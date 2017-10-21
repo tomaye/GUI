@@ -213,6 +213,7 @@ class LogHandler():
 
         members = "failed member scan"
         id = "failed ID scan"
+        date = "4w3d"
 
         for i in range(0, 10):
             line = lines[index+i]
@@ -338,7 +339,7 @@ class MainWindow(Frame):
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
-        self.version = "v.3.2.1"
+        self.version = "v.3.2.2"
         self.master = master
         self.master.title("GSL GUI "+"\t" + self.version)
         self.data = self.get_data_from_drive()
